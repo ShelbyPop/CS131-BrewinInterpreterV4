@@ -11,9 +11,9 @@ nil = Element("nil")
 # Source: https://www.cs.virginia.edu/~evans/cs150/book/ch13-laziness-0402.pdf (Given on campuswire)
 class Thunk:
     # expr stores the expression_node, env stores the variable scope.
-    def __init__(self, expr, env, evaluate_expression):
+    def __init__(self, expr, environment, evaluate_expression):
         self._expr = expr
-        self._env = env
+        self._env = [copy.deepcopy(env) for env in environment]
         self._evaluated = False
         self._value = None
         self._evaluate_expression = evaluate_expression # Pass in expression eval method from Interpreter class
@@ -22,7 +22,8 @@ class Thunk:
         if not self._evaluated:
             #print(f"Previously: {self._prev_value}")
             #print(f"Thunk variable environment: {self._env}")
-            self._value = self._evaluate_expression(self._expr, self._env)
+            temp_env = self._env
+            self._value = self._evaluate_expression(self._expr, temp_env)
             self._prev_value = self._value
             #print(f"Is now: {self._value}")
             self._evaluated = True
@@ -129,7 +130,7 @@ class Interpreter(InterpreterBase):
                 #prev_var_stack = self.variable_scope_stack.copy()
                 #self.output(f"Scope before: {scope}")
                 #self.output(prev_var_stack)
-                scope[target_var_name] = Thunk(source_node, copy.deepcopy(self.variable_scope_stack), self.evaluate_expression) # need deepcopy, otherwise it changes. 
+                scope[target_var_name] = Thunk(source_node, self.variable_scope_stack, self.evaluate_expression) # Thunk deepcopys on init. now 
                 #self.output(prev_var_stack)
                 #self.output(f"Scope after: {scope}")
                 
@@ -165,6 +166,9 @@ class Interpreter(InterpreterBase):
             for arg in statement_node.dict['args']:
                 
                 eval = self.evaluate_expression(arg, env)
+                if isThunk(eval):
+                    eval = eval.value()
+                    #self.output(f"Eval'd : {eval}")
                 # note, cant concat unles its str type
                 if type(eval) is bool:
                     if eval:
@@ -367,6 +371,7 @@ class Interpreter(InterpreterBase):
         return expression_node.dict['val']
 
     # returns value under the variable name provided.
+    # NOTE: IF THIS FUNCTION IS CALLED, THAT MEANS WE EAGERLY EVALUATE, SO EVALUATE RELEVANT THUNKS.
     def get_value_of_variable(self, expression_node,env): 
         if expression_node == 'nil':
             return nil
@@ -381,7 +386,7 @@ class Interpreter(InterpreterBase):
                     #self.output(f"Val is: {val.value()}")
                     
                     val = val.value() # So we dont print the thunk object + forces evaluation.
-                    #self.output(f"Environment: {env}")
+                #     #self.output(f"Environment: {env}")
                 return val 
         # if varname not found
         #self.output(f"Environment: {env}")
@@ -393,6 +398,15 @@ class Interpreter(InterpreterBase):
         # can *only* be +, -, *, / for now.
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+
+        # if this is being called, that means we're eagerly evaluating, evaluate expression.
+        # if isThunk(eval1):
+        #     eval1 = eval1.value()
+        # if isThunk(eval2):
+        #     eval2 = eval2.value()
+        
+        #self.output(f"eval1: {eval1} eval2: {eval2}")
+
         # for all operators other than + (for concat), both must be of type 'int'
         if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
@@ -464,23 +478,25 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-# program = """
-# func bar(x) {
-#  print("bar: ", x);
-#  return x;
-# }
+program = """
+func bar(x) {
+ print("bar: ", x);
+ return x;
+}
 
-# func main() {
-#  var a;
-#  a = bar(0);
-#  a = a + bar(1);
-#  a = a + bar(2);
-#  a = a + bar(3);
-#  print("---");
-#  print(a);
-#  print("---");
-#  print(a);
-# }
-# """
-# interpreter = Interpreter()
-# interpreter.run(program)
+func main() {
+ var x;
+ var y;
+ x = 0;
+ y = 0;
+ x = y;
+ y = y+5;
+ y = y+y;
+ print(x);
+ print(y);
+ print(x==y);
+ 
+}
+"""
+interpreter = Interpreter()
+interpreter.run(program)
