@@ -11,12 +11,11 @@ class Interpreter(InterpreterBase):
         super().__init__(console_output, inp)   # call InterpreterBase's constructor
         # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
         self.func_defs = []
-        # Copilot: (+1)
         self.variable_scope_stack = [{}] # Stack to hold variable scopes
         
-
     def run(self, program):
         ast = parse_program(program) # returns list of function nodes
+        self.output(ast) # always good for start of assignment
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
         self.run_func(main_func_node)
@@ -35,13 +34,11 @@ class Interpreter(InterpreterBase):
         # define error for 'main' not found.
         super().error(ErrorType.NAME_ERROR, "No main() function was found",)
 
-
     # self explanatory
     def run_func(self, func_node):
         # statements key for sub-dict.
         ### BEGIN FUNC SCOPE ###
         self.variable_scope_stack.append({})
-        
         return_value = nil
         for statement in func_node.dict['statements']:
             return_value = self.run_statement(statement)
@@ -52,12 +49,10 @@ class Interpreter(InterpreterBase):
                 return return_value.get("value")
             if return_value is not nil:
                 break
-        
         ### END FUNC SCOPE ###
         self.variable_scope_stack.pop()
         return return_value
     
-
     def run_statement(self, statement_node):
         #print(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
@@ -73,14 +68,12 @@ class Interpreter(InterpreterBase):
         elif self.is_for_loop(statement_node):
             return self.do_for_loop(statement_node)
         return nil
-
     
     def is_definition(self, statement_node):
         return (True if statement_node.elem_type == "vardef" else False)
     def is_assignment(self, statement_node):
         return (True if statement_node.elem_type == "=" else False)
     def is_func_call(self, statement_node):
-        
         return (True if statement_node.elem_type == "fcall" else False)
     def is_return_statement(self, statement_node):
         return (True if statement_node.elem_type == "return" else False)
@@ -89,21 +82,16 @@ class Interpreter(InterpreterBase):
     def is_for_loop(self, statement_node):
         return (True if statement_node.elem_type == "for" else False)
 
-
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
         target_var_name = self.get_target_variable_name(statement_node)
-        # Copilot (+1)
         if target_var_name in self.variable_scope_stack[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
             self.variable_scope_stack[-1][target_var_name] = None
         
-
     def do_assignment(self, statement_node):
-        
         target_var_name = self.get_target_variable_name(statement_node)
-        # Copilot (+5)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 # Does not evaluate until after checking if valid variable
@@ -131,7 +119,6 @@ class Interpreter(InterpreterBase):
                        f"Incorrect amount of arguments given: {arg_len} ",
                        )
     
-
     def do_func_call(self, statement_node):
         func_call = statement_node.dict['name']
         if func_call == "print":
@@ -151,9 +138,6 @@ class Interpreter(InterpreterBase):
             self.output(output)
             return nil
         elif func_call == "inputi":
-
-            ## NOTE: this may come up in the git history as 'copy and pasted' but its because 
-            # my git repo didnt have this inputi() version, but my submission for project 1 did.
             # too many inputi params
             if len(statement_node.dict['args']) > 1:
                 super().error(ErrorType.NAME_ERROR,f"No inputi() function found that takes > 1 parameter",)
@@ -161,7 +145,6 @@ class Interpreter(InterpreterBase):
                 arg = statement_node.dict['args'][0]
                 # THIS IS 2/3 OF ONLY REAL SELF.OUTPUT
                 self.output(self.evaluate_expression(arg))
-
             user_in = super().get_input()
             try:
                 user_in = int(user_in)
@@ -178,7 +161,6 @@ class Interpreter(InterpreterBase):
                 arg = statement_node.dict['args'][0]
                 # THIS IS 3/3 OF ONLY REAL SELF.OUTPUT
                 self.output(self.evaluate_expression(arg))
-
             user_in = super().get_input()
             try:
                 user_in = int(user_in)
@@ -192,39 +174,31 @@ class Interpreter(InterpreterBase):
                 super().error(ErrorType.NAME_ERROR,
                                 f"Function {func_call} was not found",
                                 )
-            # If reach here, function must be valid; grab function definition
-            
             func_def = self.get_func_def(func_call, len(statement_node.dict['args']))
             ##### Start Function Call ######
 
-            #### START SCOPE ####
+            #### START FUNC SCOPE ####
             # Assign parameters to the local variable dict
             args = statement_node.dict['args'] # passed in arguments
             params = func_def.dict['args'] # function parameters
-
             processed_args = [{}]
             # intialize params, and then assign to them each arg in order
             for i in range(0,len(params)):
-                # define params
                 var_name = params[i].dict['name']
                 processed_args[-1][var_name] = self.evaluate_expression(args[i])
-
             main_vars = self.variable_scope_stack.copy()
 
-            # wipe all prev vars except arguments
             self.variable_scope_stack = processed_args
             return_value = self.run_func(func_def)
             
-            #### END SCOPE ####
+            #### END FUNC SCOPE ####
             self.variable_scope_stack = main_vars.copy()
-            return return_value
-                            
+            return return_value          
             ##### End Function Call ######
     
     def do_return_statement(self, statement_node):
         if not statement_node.dict['expression']:
             #return 'nil' Element
-            # I had the idea, Copilot (+1) showed me how to assign a val
             return Element("return", value=nil)
         return self.evaluate_expression(statement_node.dict['expression'])
 
@@ -240,7 +214,6 @@ class Interpreter(InterpreterBase):
         else_statements = statement_node.dict['else_statements']
 
         ### BEGIN IF SCOPE ###
-        # Copilot (+1)
         self.variable_scope_stack.append({})
         if condition:
             for statement in statements:
@@ -266,11 +239,8 @@ class Interpreter(InterpreterBase):
                         self.variable_scope_stack.pop()
                         return Element("return", value=return_value)
         ### END IF SCOPE ###
-
-        # Copilot (+1)
         self.variable_scope_stack.pop()
         return nil
-
 
     def do_for_loop(self, statement_node):
         # Run initializer
@@ -305,14 +275,11 @@ class Interpreter(InterpreterBase):
             self.run_statement(update)
         return nil
         
-        
-    # helper functions
     def get_target_variable_name(self, statement_node):
         return statement_node.dict['name']
     def get_expression_node(self, statement_node):
         return statement_node.dict['expression']
     
-
     # basically pseudocode, self-explanatory
     def is_value_node(self, expression_node):
         return True if (expression_node.elem_type in ["int", "string", "bool", "nil"]) else False
@@ -326,7 +293,6 @@ class Interpreter(InterpreterBase):
         return True if (expression_node.elem_type in ['==', '<', '<=', '>', '>=', '!=']) else False
     def is_binary_boolean_operator(self, expression_node):
         return True if (expression_node.elem_type in ['&&', '||']) else False
-
 
     # basically pseudcode, self-explanatory
     def evaluate_expression(self, expression_node):
@@ -352,12 +318,9 @@ class Interpreter(InterpreterBase):
         return expression_node.dict['val']
 
     # returns value under the variable name provided.
-    def get_value_of_variable(self, expression_node):
-        
+    def get_value_of_variable(self, expression_node): 
         if expression_node == 'nil':
             return nil
-        
-        # Copilot (+4)
         var_name = expression_node.dict['name']
         for scope in reversed(self.variable_scope_stack): 
             if var_name in scope: 
@@ -369,21 +332,16 @@ class Interpreter(InterpreterBase):
         # if varname not found
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
-
     # + or -
     def evaluate_binary_operator(self, expression_node):
         # can *only* be +, -, *, / for now.
-
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
         # for all operators other than + (for concat), both must be of type 'int'
         if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
-        # note, the line below looked like above 'isinstance' but i just made it this because instance was bugging (probably just had bad () lol)
-       
         if (expression_node.elem_type == "+") and not ((type(eval1) == int and type(eval2) == int) or (type(eval1) == str and type(eval2) == str)):
             super().error(ErrorType.TYPE_ERROR, "Types for + must be both of type int or string.",)
-            
         if expression_node.elem_type == "+":
             return (eval1 + eval2)
         elif expression_node.elem_type == "-":
@@ -393,7 +351,6 @@ class Interpreter(InterpreterBase):
         elif expression_node.elem_type == "/":
             # integer division
             return (eval1 // eval2)
-
 
     def evaluate_unary_operator(self, expression_node):
         # can be 'neg' (-b) or  '!' for boolean
@@ -411,12 +368,10 @@ class Interpreter(InterpreterBase):
     def evaluate_comparison_operator(self, expression_node):
         eval1 = self.evaluate_expression(expression_node.dict['op1'])
         eval2 = self.evaluate_expression(expression_node.dict['op2'])
-
         # != and == can compare different types.
         #self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type int.",)
-        
         match expression_node.elem_type:
             case '<':
                 return (eval1 < eval2)
@@ -445,32 +400,21 @@ class Interpreter(InterpreterBase):
         # forces evaluation on both (strict evaluation)
         eval1 = bool(eval1)
         eval2 = bool(eval2)
-
         match expression_node.elem_type:
             case '&&':
                 return (eval1 and eval2)
             case '||':
                 return (eval1 or eval2)
-    
     # No more functions remain... for now... :)
 
 #DEBUGGING
-# program = """
-# func recursive(n) {
-#     if (n <= 0) {
-#         var baseCase;
-#         baseCase = 10;
-#         print(baseCase);  /* Expect 10 */
-#         return;
-#     }
-#     var localVar;
-#     localVar = n;
-#     print(localVar);  /* Expect decreasing values of n */
-#     recursive(n - 1);
-# }
-# func main() {
-#     recursive(5);
-# }
-# """
-# interpreter = Interpreter()
-# interpreter.run(program)
+program = """
+func foo(a) {
+  return (a+1);
+}
+func main() {
+	print(foo(6));
+}
+"""
+interpreter = Interpreter()
+interpreter.run(program)
