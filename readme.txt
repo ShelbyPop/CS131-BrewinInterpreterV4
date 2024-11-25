@@ -7,3 +7,7 @@ Nov 23 - Added Lazy evaluation - Unsure if actually correct, tried 12-13 testcas
         - Still need exception handling and short circuiting, as well as more extensive testing with lazy eval once implemented.
         - Knew it, theres a bug with parameter passing and when deciding when it evaluates, causing recursion depth error
         - Actually, the bug has to do with not using lambda captures like we were toldddd (result = 5; result = result + 2; print(result);) results in recursion depth error (need lambdas)
+
+
+Nov 24 - ..... I'm just... okay
+        - the fix was that I needed to make the environment I pass to the Thunk a **DEEPCOPY** and not a shallow copy. I.... ugh. That took me like 5 hours alone to debug.. cool lol

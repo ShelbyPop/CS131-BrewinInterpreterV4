@@ -1,370 +1,476 @@
-# document that we won't have a return inside the init/update of a for loop
+# Author: Shelby Falde
+# Course: CS131
 
+from brewparse import *
+from intbase import *
+import sys
+sys.tracebacklimit = 0
 import copy
-from enum import Enum
-
-from brewparse import parse_program
-from env_v4 import EnvironmentManager
-from intbase import InterpreterBase, ErrorType
-from type_valuev4 import Type, Value, create_value, get_printable # type: ignore
-
-
-class ExecStatus(Enum):
-    CONTINUE = 1
-    RETURN = 2
+nil = Element("nil")
 
 # Source: https://www.cs.virginia.edu/~evans/cs150/book/ch13-laziness-0402.pdf (Given on campuswire)
 class Thunk:
     # expr stores the expression_node, env stores the variable scope.
-    def __init__(self, expr, env, eval_expr):
+    def __init__(self, expr, env, evaluate_expression):
         self._expr = expr
         self._env = env
         self._evaluated = False
         self._value = None
-        self._eval_expr = eval_expr # Pass in expression eval method from Interpreter class
+        self._evaluate_expression = evaluate_expression # Pass in expression eval method from Interpreter class
 
     def value(self):
         if not self._evaluated:
-            self._value = self._eval_expr(self._expr, self._env)
+            #print(f"Previously: {self._prev_value}")
+            print(f"Thunk variable environment: {self._env}")
+            self._value = self._evaluate_expression(self._expr, self._env)
+            self._prev_value = self._value
+            #print(f"Is now: {self._value}")
             self._evaluated = True
         return self._value
 def isThunk(expr):
     return isinstance(expr, Thunk)
 
-
-# Main interpreter class
 class Interpreter(InterpreterBase):
-    # constants
-    NIL_VALUE = create_value(InterpreterBase.NIL_DEF)
-    TRUE_VALUE = create_value(InterpreterBase.TRUE_DEF)
-    BIN_OPS = {"+", "-", "*", "/", "==", "!=", ">", ">=", "<", "<=", "||", "&&"}
-
-    # methods
     def __init__(self, console_output=True, inp=None, trace_output=False):
-        super().__init__(console_output, inp)
-        self.trace_output = trace_output
-        self.__setup_ops()
-
-    # run a program that's provided in a string
-    # usese the provided Parser found in brewparse.py to parse the program
-    # into an abstract syntax tree (ast)
+        super().__init__(console_output, inp)   # call InterpreterBase's constructor
+        # Since functions (at the top level) can be created anywhere, we'll just do a search for function definitions and assign them 'globally'
+        self.func_defs = []
+        self.variable_scope_stack = [{}] # Stack to hold variable scopes
+        
     def run(self, program):
-        ast = parse_program(program)
-        self.__set_up_function_table(ast)
-        self.env = EnvironmentManager()
-        self.__call_func_aux("main", [])
+        ast = parse_program(program) # returns list of function nodes
+        #self.output(ast) # always good for start of assignment
+        self.func_defs = self.get_func_defs(ast)
+        main_func_node = self.get_main_func_node(ast)
+        self.run_func(main_func_node)
 
-    def __set_up_function_table(self, ast):
-        self.func_name_to_ast = {}
-        for func_def in ast.get("functions"):
-            func_name = func_def.get("name")
-            num_params = len(func_def.get("args"))
-            if func_name not in self.func_name_to_ast:
-                self.func_name_to_ast[func_name] = {}
-            self.func_name_to_ast[func_name][num_params] = func_def
+    # grabs all globally defined functions to call when needed.
+    def get_func_defs(self, ast):
+        # returns functions sub-dict, 'functions' is key
+        return ast.dict['functions']
 
-    def __get_func_by_name(self, name, num_params):
-        if name not in self.func_name_to_ast:
-            super().error(ErrorType.NAME_ERROR, f"Function {name} not found")
-        candidate_funcs = self.func_name_to_ast[name]
-        if num_params not in candidate_funcs:
-            super().error(
-                ErrorType.NAME_ERROR,
-                f"Function {name} taking {num_params} params not found",
-            )
-        return candidate_funcs[num_params]
+    # returns 'main' func node from the dict input.
+    def get_main_func_node(self, ast):
+        # checks for function whose name is 'main'
+        for func in self.func_defs:
+            if func.dict['name'] == "main":
+                return func
+        # define error for 'main' not found.
+        super().error(ErrorType.NAME_ERROR, "No main() function was found",)
 
-    def __run_statements(self, statements):
-        self.env.push_block()
-        for statement in statements:
-            if self.trace_output:
-                print(statement)
-            status, return_val = self.__run_statement(statement)
-            if status == ExecStatus.RETURN:
-                self.env.pop_block()
-                return (status, return_val)
-
-        self.env.pop_block()
-        return (ExecStatus.CONTINUE, Interpreter.NIL_VALUE)
-
-    def __run_statement(self, statement):
-        status = ExecStatus.CONTINUE
-        return_val = None
-        if statement.elem_type == InterpreterBase.FCALL_NODE:
-            self.__call_func(statement)
-        elif statement.elem_type == "=":
-            self.__assign(statement)
-        elif statement.elem_type == InterpreterBase.VAR_DEF_NODE:
-            self.__var_def(statement)
-        elif statement.elem_type == InterpreterBase.RETURN_NODE:
-            status, return_val = self.__do_return(statement)
-        elif statement.elem_type == Interpreter.IF_NODE:
-            status, return_val = self.__do_if(statement)
-        elif statement.elem_type == Interpreter.FOR_NODE:
-            status, return_val = self.__do_for(statement)
-
-        return (status, return_val)
+    # self explanatory
+    def run_func(self, func_node, env=None):
+        if env is None:
+            env = self.variable_scope_stack
+        # statements key for sub-dict.
+        ### BEGIN FUNC SCOPE ###
+        self.variable_scope_stack.append({})
+        return_value = nil
+        for statement in func_node.dict['statements']:
+            return_value = self.run_statement(statement, env)
+            # check if statement results in a return, and return a return statement with 
+            if isinstance(return_value, Element) and return_value.elem_type == "return":
+                # Return the value, dont need to continue returning.
+                self.variable_scope_stack.pop()
+                return return_value.get("value")
+            if return_value is not nil:
+                break
+        ### END FUNC SCOPE ###
+        self.variable_scope_stack.pop()
+        return return_value
     
-    def __call_func(self, call_node):
-        func_name = call_node.get("name")
-        actual_args = call_node.get("args")
-        return self.__call_func_aux(func_name, actual_args)
-
-    def __call_func_aux(self, func_name, actual_args):
-        if func_name == "print":
-            return self.__call_print(actual_args)
-        if func_name == "inputi" or func_name == "inputs":
-            return self.__call_input(func_name, actual_args)
-
-        func_ast = self.__get_func_by_name(func_name, len(actual_args))
-        formal_args = func_ast.get("args")
-        if len(actual_args) != len(formal_args):
-            super().error(
-                ErrorType.NAME_ERROR,
-                f"Function {func_ast.get('name')} with {len(actual_args)} args not found",
-            )
-
-        # first evaluate all of the actual parameters and associate them with the formal parameter names
-        args = {}
-        for formal_ast, actual_ast in zip(formal_args, actual_args):
-            result = copy.copy(self.__eval_expr(actual_ast))
-            arg_name = formal_ast.get("name")
-            args[arg_name] = result
-
-        # then create the new activation record 
-        self.env.push_func()
-        # and add the formal arguments to the activation record
-        for arg_name, value in args.items():
-          self.env.create(arg_name, value)
-        _, return_val = self.__run_statements(func_ast.get("statements"))
-        self.env.pop_func()
-        return return_val
-
-    def __call_print(self, args):
-        output = ""
-        for arg in args:
-            result = self.__eval_expr(arg)  # result is a Value object
-            output = output + get_printable(result)
-        super().output(output)
-        return Interpreter.NIL_VALUE
-
-    def __call_input(self, name, args):
-        if args is not None and len(args) == 1:
-            result = self.__eval_expr(args[0])
-            super().output(get_printable(result))
-        elif args is not None and len(args) > 1:
-            super().error(
-                ErrorType.NAME_ERROR, "No inputi() function that takes > 1 parameter"
-            )
-        inp = super().get_input()
-        if name == "inputi":
-            return Value(Type.INT, int(inp))
-        if name == "inputs":
-            return Value(Type.STRING, inp)
-
-    def __assign(self, assign_ast):
-        var_name = assign_ast.get("name")
-        value_obj = self.__eval_expr(assign_ast.get("expression"))
-        if not self.env.set(var_name, value_obj):
-            super().error(
-                ErrorType.NAME_ERROR, f"Undefined variable {var_name} in assignment"
-            )
+    def run_statement(self, statement_node, env=None):
+        if env is None:
+            env = self.variable_scope_stack
+        #print(f"Running statement: {statement_node}")
+        if self.is_definition(statement_node):
+            self.do_definition(statement_node)
+        elif self.is_assignment(statement_node):
+            self.do_assignment(statement_node)
+        elif self.is_func_call(statement_node):
+            return self.do_func_call(statement_node, env)
+        elif self.is_return_statement(statement_node):
+            return self.do_return_statement(statement_node)
+        elif self.is_if_statement(statement_node):
+            return self.do_if_statement(statement_node, env)
+        elif self.is_for_loop(statement_node):
+            return self.do_for_loop(statement_node, env)
+        return nil
     
-    def __var_def(self, var_ast):
-        var_name = var_ast.get("name")
-        if not self.env.create(var_name, Interpreter.NIL_VALUE):
-            super().error(
-                ErrorType.NAME_ERROR, f"Duplicate definition for variable {var_name}"
-            )
+    def is_definition(self, statement_node):
+        return (True if statement_node.elem_type == "vardef" else False)
+    def is_assignment(self, statement_node):
+        return (True if statement_node.elem_type == "=" else False)
+    def is_func_call(self, statement_node):
+        return (True if statement_node.elem_type == "fcall" else False)
+    def is_return_statement(self, statement_node):
+        return (True if statement_node.elem_type == "return" else False)
+    def is_if_statement(self, statement_node):
+        return (True if statement_node.elem_type == "if" else False)
+    def is_for_loop(self, statement_node):
+        return (True if statement_node.elem_type == "for" else False)
 
-    def __eval_expr(self, expr_ast):
-        if expr_ast.elem_type == InterpreterBase.NIL_NODE:
-            return Interpreter.NIL_VALUE
-        if expr_ast.elem_type == InterpreterBase.INT_NODE:
-            return Value(Type.INT, expr_ast.get("val"))
-        if expr_ast.elem_type == InterpreterBase.STRING_NODE:
-            return Value(Type.STRING, expr_ast.get("val"))
-        if expr_ast.elem_type == InterpreterBase.BOOL_NODE:
-            return Value(Type.BOOL, expr_ast.get("val"))
-        if expr_ast.elem_type == InterpreterBase.VAR_NODE:
-            var_name = expr_ast.get("name")
-            val = self.env.get(var_name)
-            if val is None:
-                super().error(ErrorType.NAME_ERROR, f"Variable {var_name} not found")
-            return val
-        if expr_ast.elem_type == InterpreterBase.FCALL_NODE:
-            return self.__call_func(expr_ast)
-        if expr_ast.elem_type in Interpreter.BIN_OPS:
-            return self.__eval_op(expr_ast)
-        if expr_ast.elem_type == Interpreter.NEG_NODE:
-            return self.__eval_unary(expr_ast, Type.INT, lambda x: -1 * x)
-        if expr_ast.elem_type == Interpreter.NOT_NODE:
-            return self.__eval_unary(expr_ast, Type.BOOL, lambda x: not x)
-
-    def __eval_op(self, arith_ast):
-        left_value_obj = self.__eval_expr(arith_ast.get("op1"))
-        right_value_obj = self.__eval_expr(arith_ast.get("op2"))
-        if not self.__compatible_types(
-            arith_ast.elem_type, left_value_obj, right_value_obj
-        ):
-            super().error(
-                ErrorType.TYPE_ERROR,
-                f"Incompatible types for {arith_ast.elem_type} operation",
-            )
-        if arith_ast.elem_type not in self.op_to_lambda[left_value_obj.type()]:
-            super().error(
-                ErrorType.TYPE_ERROR,
-                f"Incompatible operator {arith_ast.elem_type} for type {left_value_obj.type()}",
-            )
-        f = self.op_to_lambda[left_value_obj.type()][arith_ast.elem_type]
-        return f(left_value_obj, right_value_obj)
-
-    def __compatible_types(self, oper, obj1, obj2):
-        # DOCUMENT: allow comparisons ==/!= of anything against anything
-        if oper in ["==", "!="]:
-            return True
-        return obj1.type() == obj2.type()
-
-    def __eval_unary(self, arith_ast, t, f):
-        value_obj = self.__eval_expr(arith_ast.get("op1"))
-        if value_obj.type() != t:
-            super().error(
-                ErrorType.TYPE_ERROR,
-                f"Incompatible type for {arith_ast.elem_type} operation",
-            )
-        return Value(t, f(value_obj.value()))
-
-    def __setup_ops(self):
-        self.op_to_lambda = {}
-        # set up operations on integers
-        self.op_to_lambda[Type.INT] = {}
-        self.op_to_lambda[Type.INT]["+"] = lambda x, y: Value(
-            x.type(), x.value() + y.value()
-        )
-        self.op_to_lambda[Type.INT]["-"] = lambda x, y: Value(
-            x.type(), x.value() - y.value()
-        )
-        self.op_to_lambda[Type.INT]["*"] = lambda x, y: Value(
-            x.type(), x.value() * y.value()
-        )
-        self.op_to_lambda[Type.INT]["/"] = lambda x, y: Value(
-            x.type(), x.value() // y.value()
-        )
-        self.op_to_lambda[Type.INT]["=="] = lambda x, y: Value(
-            Type.BOOL, x.type() == y.type() and x.value() == y.value()
-        )
-        self.op_to_lambda[Type.INT]["!="] = lambda x, y: Value(
-            Type.BOOL, x.type() != y.type() or x.value() != y.value()
-        )
-        self.op_to_lambda[Type.INT]["<"] = lambda x, y: Value(
-            Type.BOOL, x.value() < y.value()
-        )
-        self.op_to_lambda[Type.INT]["<="] = lambda x, y: Value(
-            Type.BOOL, x.value() <= y.value()
-        )
-        self.op_to_lambda[Type.INT][">"] = lambda x, y: Value(
-            Type.BOOL, x.value() > y.value()
-        )
-        self.op_to_lambda[Type.INT][">="] = lambda x, y: Value(
-            Type.BOOL, x.value() >= y.value()
-        )
-        #  set up operations on strings
-        self.op_to_lambda[Type.STRING] = {}
-        self.op_to_lambda[Type.STRING]["+"] = lambda x, y: Value(
-            x.type(), x.value() + y.value()
-        )
-        self.op_to_lambda[Type.STRING]["=="] = lambda x, y: Value(
-            Type.BOOL, x.value() == y.value()
-        )
-        self.op_to_lambda[Type.STRING]["!="] = lambda x, y: Value(
-            Type.BOOL, x.value() != y.value()
-        )
-        #  set up operations on bools
-        self.op_to_lambda[Type.BOOL] = {}
-        self.op_to_lambda[Type.BOOL]["&&"] = lambda x, y: Value(
-            x.type(), x.value() and y.value()
-        )
-        self.op_to_lambda[Type.BOOL]["||"] = lambda x, y: Value(
-            x.type(), x.value() or y.value()
-        )
-        self.op_to_lambda[Type.BOOL]["=="] = lambda x, y: Value(
-            Type.BOOL, x.type() == y.type() and x.value() == y.value()
-        )
-        self.op_to_lambda[Type.BOOL]["!="] = lambda x, y: Value(
-            Type.BOOL, x.type() != y.type() or x.value() != y.value()
-        )
-
-        #  set up operations on nil
-        self.op_to_lambda[Type.NIL] = {}
-        self.op_to_lambda[Type.NIL]["=="] = lambda x, y: Value(
-            Type.BOOL, x.type() == y.type() and x.value() == y.value()
-        )
-        self.op_to_lambda[Type.NIL]["!="] = lambda x, y: Value(
-            Type.BOOL, x.type() != y.type() or x.value() != y.value()
-        )
-
-    def __do_if(self, if_ast):
-        cond_ast = if_ast.get("condition")
-        result = self.__eval_expr(cond_ast)
-        if result.type() != Type.BOOL:
-            super().error(
-                ErrorType.TYPE_ERROR,
-                "Incompatible type for if condition",
-            )
-        if result.value():
-            statements = if_ast.get("statements")
-            status, return_val = self.__run_statements(statements)
-            return (status, return_val)
+    def do_definition(self, statement_node):
+        # just add to var_name_to_value dict
+        target_var_name = self.get_target_variable_name(statement_node)
+        if target_var_name in self.variable_scope_stack[-1]:
+            super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
-            else_statements = if_ast.get("else_statements")
-            if else_statements is not None:
-                status, return_val = self.__run_statements(else_statements)
-                return (status, return_val)
+            self.variable_scope_stack[-1][target_var_name] = None
+        
+    def do_assignment(self, statement_node):
+        target_var_name = self.get_target_variable_name(statement_node)
+        source_node = self.get_expression_node(statement_node)
+        for scope in reversed(self.variable_scope_stack): 
+            if target_var_name in scope: 
+                
+                #prev_var_stack = self.variable_scope_stack.copy()
+                #self.output(f"Scope before: {scope}")
+                #self.output(prev_var_stack)
+                scope[target_var_name] = Thunk(source_node, copy.deepcopy(self.variable_scope_stack), self.evaluate_expression) # need deepcopy, otherwise it changes. 
+                #self.output(prev_var_stack)
+                #self.output(f"Scope after: {scope}")
+                
+                return
+        super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
-        return (ExecStatus.CONTINUE, Interpreter.NIL_VALUE)
+    # Check if function is defined
+    def check_valid_func(self, func_call):
+        for func in self.func_defs:
+            if func.dict['name'] == func_call:
+                return True
+        return False
 
-    def __do_for(self, for_ast):
-        init_ast = for_ast.get("init") 
-        cond_ast = for_ast.get("condition")
-        update_ast = for_ast.get("update") 
-
-        self.__run_statement(init_ast)  # initialize counter variable
-        run_for = Interpreter.TRUE_VALUE
-        while run_for.value():
-            run_for = self.__eval_expr(cond_ast)  # check for-loop condition
-            if run_for.type() != Type.BOOL:
-                super().error(
-                    ErrorType.TYPE_ERROR,
-                    "Incompatible type for for condition",
-                )
-            if run_for.value():
-                statements = for_ast.get("statements")
-                status, return_val = self.__run_statements(statements)
-                if status == ExecStatus.RETURN:
-                    return status, return_val
-                self.__run_statement(update_ast)  # update counter variable
-
-        return (ExecStatus.CONTINUE, Interpreter.NIL_VALUE)
-
-    def __do_return(self, return_ast):
-        expr_ast = return_ast.get("expression")
-        if expr_ast is None:
-            return (ExecStatus.RETURN, Interpreter.NIL_VALUE)
-        value_obj = copy.copy(self.__eval_expr(expr_ast))
-        return (ExecStatus.RETURN, value_obj)
+    # Allows function overloading by first searching for func_defs for a matching name and arg length
+    def get_func_def(self, func_call, arg_len):
+        for func in self.func_defs:
+            if func.dict['name'] == func_call and len(func.dict['args']) == arg_len:
+                return func
+        # Already check if func exists before calling
+        # So, must not have correct args.
+        super().error(ErrorType.NAME_ERROR,
+                       f"Incorrect amount of arguments given: {arg_len} ",
+                       )
     
+    def do_func_call(self, statement_node, env=None):
+        if env is None:
+            env = self.variable_scope_stack
+
+        func_call = statement_node.dict['name']
+        if func_call == "print":
+            output = ""
+            # loop through each arg in args list for print, evaluate their expressions, concat, and output.
+            for arg in statement_node.dict['args']:
+                
+                eval = self.evaluate_expression(arg, env)
+                # note, cant concat unles its str type
+                if type(eval) is bool:
+                    if eval:
+                        output += "true"
+                    else: 
+                        output += "false"
+                else:
+                    output += str(eval)
+            # THIS IS 1/3 OF ONLY REAL SELF.OUTPUT
+            self.output(output)
+            return nil
+        elif func_call == "inputi":
+            # too many inputi params
+            if len(statement_node.dict['args']) > 1:
+                super().error(ErrorType.NAME_ERROR,f"No inputi() function found that takes > 1 parameter",)
+            elif len(statement_node.dict['args']) == 1:
+                arg = statement_node.dict['args'][0]
+                # THIS IS 2/3 OF ONLY REAL SELF.OUTPUT
+                self.output(self.evaluate_expression(arg, env))
+            user_in = super().get_input()
+            try:
+                user_in = int(user_in)
+                return user_in
+            except:
+                return user_in
+        
+        # same as inputi but for strings
+        elif func_call == "inputs":
+            # too many inputi params
+            if len(statement_node.dict['args']) > 1:
+                super().error(ErrorType.NAME_ERROR,f"No inputs() function found that takes > 1 parameter",)
+            elif len(statement_node.dict['args']) == 1:
+                arg = statement_node.dict['args'][0]
+                # THIS IS 3/3 OF ONLY REAL SELF.OUTPUT
+                self.output(self.evaluate_expression(arg, env))
+            user_in = super().get_input()
+            try:
+                user_in = int(user_in)
+                return user_in
+            except:
+                return user_in
+        else:
+            ## USER-DEFINED FUNCTION ##
+            # Check if function is defined
+            if not self.check_valid_func(func_call):
+                super().error(ErrorType.NAME_ERROR,
+                                f"Function {func_call} was not found",
+                                )
+            func_def = self.get_func_def(func_call, len(statement_node.dict['args']))
+            ##### Start Function Call ######
+
+            #### START FUNC SCOPE ####
+            # Assign parameters to the local variable dict
+            args = statement_node.dict['args'] # passed in arguments
+            params = func_def.dict['args'] # function parameters
+            processed_args = [{}]
+            # intialize params, and then assign to them each arg in order
+            for i in range(0,len(params)):
+                var_name = params[i].dict['name']
+                processed_args[-1][var_name] = Thunk(args[i], env, self.evaluate_expression) # In arg assign to param, use thunks still (just like do_assignment)
+            
+            #self.output(processed_args)
+            # TODO: May need to remove .copy()?
+            main_vars = self.variable_scope_stack.copy()
+            self.variable_scope_stack = processed_args
+            return_value = self.run_func(func_def)
+            
+            #### END FUNC SCOPE ####
+            self.variable_scope_stack = main_vars.copy()
+            return return_value          
+            ##### End Function Call ######
+    
+    def do_return_statement(self, statement_node ,env=None):
+        if env is None:
+            env = self.variable_scope_stack
+        if not statement_node.dict['expression']:
+            #return 'nil' Element
+            return Element("return", value=nil)
+        return self.evaluate_expression(statement_node.dict['expression'], env)
+
+    # Scope rules: Can access parent calling vars, but vars they create are deleted after scope.
+    # So, keep track of what vars were before, and after end of clause, wipe those variables.
+    def do_if_statement(self, statement_node, env):
+        if env is None:
+            env = self.variable_scope_stack
+        condition = statement_node.dict['condition']
+        condition = self.evaluate_expression(condition, env)
+        # error if condition is non-boolean
+        if type(condition) is not bool:
+            super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
+        statements = statement_node.dict['statements']
+        else_statements = statement_node.dict['else_statements']
+
+        ### BEGIN IF SCOPE ###
+        self.variable_scope_stack.append({})
+        if condition:
+            for statement in statements:
+                return_value = self.run_statement(statement, env)     
+                if isinstance(return_value, Element) and return_value.elem_type == "return":
+                    #end scope early and return
+                    self.variable_scope_stack.pop()
+                    return Element("return", value=return_value.get("value"))
+                elif return_value is not nil:
+                    self.variable_scope_stack.pop()
+                    return Element("return", value=return_value)
+                    # if return needed, stop running statements, immediately return the value.
+        else:
+            if else_statements:
+                for else_statement in else_statements:
+                    return_value = self.run_statement(else_statement, env)
+                    
+                    if isinstance(return_value, Element) and return_value.elem_type == "return":
+                        #end scope early and return
+                        self.variable_scope_stack.pop()
+                        return Element("return", value=return_value.get("value"))
+                    elif return_value is not nil:
+                        self.variable_scope_stack.pop()
+                        return Element("return", value=return_value)
+        ### END IF SCOPE ###
+        self.variable_scope_stack.pop()
+        return nil
+
+    def do_for_loop(self, statement_node, env):
+        # Run initializer
+        init_node = statement_node.dict['init']
+        self.run_statement(init_node, env)
+        update = statement_node.dict['update']
+        condition = statement_node.dict['condition']
+        statements = statement_node.dict['statements']
+        
+        # Run the loop again (exits on condition false)
+        while self.evaluate_expression(condition, env):
+            if type(self.evaluate_expression(condition, env)) is not bool:
+                super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
+            
+            ### BEGIN VAR SCOPE ###
+            self.variable_scope_stack.append({})
+
+            for statement in statements:
+                return_value = self.run_statement(statement, env)
+                # if return keyword
+                if isinstance(return_value, Element) and return_value.elem_type == "return":
+
+                    #end scope early and return
+                    self.variable_scope_stack.pop()
+                    return Element("return", value=return_value.get("value"))
+                elif return_value is not nil:
+                    return Element("return", value=return_value)
+
+            ### END VAR SCOPE ###
+            self.variable_scope_stack.pop()
+
+            self.run_statement(update, env)
+        return nil
+        
+    def get_target_variable_name(self, statement_node):
+        return statement_node.dict['name']
+    def get_expression_node(self, statement_node):
+        return statement_node.dict['expression']
+    
+    # basically pseudocode, self-explanatory
+    def is_value_node(self, expression_node):
+        return True if (expression_node.elem_type in ["int", "string", "bool", "nil"]) else False
+    def is_variable_node(self, expression_node):
+        return True if (expression_node.elem_type == "var") else False
+    def is_binary_operator(self, expression_node):
+        return True if (expression_node.elem_type in ["+", "-", "*", "/"]) else False
+    def is_unary_operator(self, expression_node):
+        return True if (expression_node.elem_type in ["neg", "!"]) else False
+    def is_comparison_operator(self, expression_node):
+        return True if (expression_node.elem_type in ['==', '<', '<=', '>', '>=', '!=']) else False
+    def is_binary_boolean_operator(self, expression_node):
+        return True if (expression_node.elem_type in ['&&', '||']) else False
+
+    # basically pseudcode, self-explanatory
+    def evaluate_expression(self, expression_node, env=None): # default for env if none passed in
+        if env is None:
+            env = self.variable_scope_stack
+        if isThunk(expression_node):
+            return expression_node.value()
+        elif self.is_value_node(expression_node):
+            return self.get_value(expression_node)
+        elif self.is_variable_node(expression_node):
+            return self.get_value_of_variable(expression_node,env)
+        elif self.is_binary_operator(expression_node):
+            return self.evaluate_binary_operator(expression_node,env)
+        elif self.is_unary_operator(expression_node):
+            return self.evaluate_unary_operator(expression_node,env)
+        elif self.is_comparison_operator(expression_node):
+            return self.evaluate_comparison_operator(expression_node, env)
+        elif self.is_binary_boolean_operator(expression_node):
+            return self.evaluate_binary_boolean_operator(expression_node, env)
+        elif self.is_func_call(expression_node):
+            return self.do_func_call(expression_node)
+
+    def get_value(self, expression_node):
+        # Returns value assigned to key 'val'
+        if expression_node.elem_type == "nil":
+            return nil
+        return expression_node.dict['val']
+
+    # returns value under the variable name provided.
+    def get_value_of_variable(self, expression_node,env): 
+        if expression_node == 'nil':
+            return nil
+        var_name = expression_node.dict['name']
+        for scope in reversed(env):
+        #for scope in reversed(self.variable_scope_stack): 
+            if var_name in scope: 
+                val = scope[var_name] 
+                if val is None:
+                    super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
+                elif isThunk(val):
+                    #self.output(f"Val is: {val.value()}")
+                    
+                    val = val.value() # So we dont print the thunk object + forces evaluation.
+                    #self.output(f"Environment: {env}")
+                return val 
+        # if varname not found
+        #self.output(f"Environment: {env}")
+        #self.output(f"Scope stack: {self.variable_scope_stack}")
+        super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
+
+    # + or -
+    def evaluate_binary_operator(self, expression_node, env):
+        # can *only* be +, -, *, / for now.
+        eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+        # for all operators other than + (for concat), both must be of type 'int'
+        if (expression_node.elem_type != "+") and not (type(eval1) == int and type(eval2) == int):
+            super().error(ErrorType.TYPE_ERROR, "Arguments must be of type 'int'.",)
+        if (expression_node.elem_type == "+") and not ((type(eval1) == int and type(eval2) == int) or (type(eval1) == str and type(eval2) == str)):
+            super().error(ErrorType.TYPE_ERROR, "Types for + must be both of type int or string.",)
+        if expression_node.elem_type == "+":
+            return (eval1 + eval2)
+        elif expression_node.elem_type == "-":
+            return (eval1 - eval2)
+        elif expression_node.elem_type == "*":
+            return (eval1 * eval2)
+        elif expression_node.elem_type == "/":
+            # integer division
+            return (eval1 // eval2)
+
+    def evaluate_unary_operator(self, expression_node, env):
+        # can be 'neg' (-b) or  '!' for boolean
+        eval = self.evaluate_expression(expression_node.dict['op1'], env)
+        if expression_node.elem_type == "neg":
+            if not (type(eval) == int):
+                super().error(ErrorType.TYPE_ERROR, "'negation' can only be used on integer values.",)
+            return -(eval)
+        if expression_node.elem_type == "!":
+            if not (type(eval) == bool):
+                super().error(ErrorType.TYPE_ERROR, "'Not' can only be used on boolean values.",)
+            return not (eval)
+        
+    # there's probably a better way to do this but oh well
+    def evaluate_comparison_operator(self, expression_node, env):
+        eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+        # != and == can compare different types.
+        self.output(f"eval1: {eval1} eval2: {eval2}")
+        if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
+            super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type int.",)
+        match expression_node.elem_type:
+            case '<':
+                return (eval1 < eval2)
+            case '<=':
+                return (eval1 <= eval2)
+            case '==':
+                if not (type(eval1) == type(eval2)):
+                    return False
+                else:
+                    return (eval1 == eval2)
+            case '>=':
+                return (eval1 >= eval2)
+            case '>':
+                return (eval1 > eval2)
+            case '!=': 
+                if not (type(eval1) == type(eval2)):
+                    return True
+                else:
+                    return (eval1 != eval2)
+    
+    def evaluate_binary_boolean_operator(self, expression_node, env):
+        eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+        if (type(eval1) is not bool) or (type(eval2) is not bool):
+            super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
+        # forces evaluation on both (strict evaluation)
+        eval1 = bool(eval1)
+        eval2 = bool(eval2)
+        match expression_node.elem_type:
+            case '&&':
+                return (eval1 and eval2)
+            case '||':
+                return (eval1 or eval2)
+    # No more functions remain... for now... :)
 
 #DEBUGGING
 program = """
 func foo() {
-    print("This should print second");
+    print("hi there!");
     return 2;
 }
 func main() {
   var result;
   result = 5;
-  result = foo() + result;
-  print("This should print first");
+  result = result + 2;
   print(result);
   var equals;
   equals = result;
