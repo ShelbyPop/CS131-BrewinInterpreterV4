@@ -21,7 +21,7 @@ class Thunk:
     def value(self):
         if not self._evaluated:
             #print(f"Previously: {self._prev_value}")
-            print(f"Thunk variable environment: {self._env}")
+            #print(f"Thunk variable environment: {self._env}")
             self._value = self._evaluate_expression(self._expr, self._env)
             self._prev_value = self._value
             #print(f"Is now: {self._value}")
@@ -71,18 +71,19 @@ class Interpreter(InterpreterBase):
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
-                self.variable_scope_stack.pop()
-                return return_value.get("value")
-            if return_value is not nil:
-                break
+                self.variable_scope_stack.pop() ## END FUNC SCOPE ##
+                return_value = return_value.get("value")
+                return return_value
+            #return return_value
+        
         ### END FUNC SCOPE ###
-        self.variable_scope_stack.pop()
-        return return_value
+        # self.variable_scope_stack.pop()
+        # return return_value
     
     def run_statement(self, statement_node, env=None):
         if env is None:
             env = self.variable_scope_stack
-        #print(f"Running statement: {statement_node}")
+        #self.output(f"Running statement: {statement_node}")
         if self.is_definition(statement_node):
             self.do_definition(statement_node)
         elif self.is_assignment(statement_node):
@@ -423,7 +424,7 @@ class Interpreter(InterpreterBase):
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
         # != and == can compare different types.
-        self.output(f"eval1: {eval1} eval2: {eval2}")
+        #self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type int.",)
         match expression_node.elem_type:
@@ -462,20 +463,20 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-# program = """
-# func foo() {
-#     print("hi there!");
-#     return 2;
-# }
-# func main() {
-#   var result;
-#   result = 5;
-#   result = result + 2;
-#   print(result);
-#   var equals;
-#   equals = result;
-#   print(result == equals);
-# }
-# """
-# interpreter = Interpreter()
-# interpreter.run(program)
+program = """
+func foo() {
+  print("foo");
+  return 4;
+}
+
+func main() {
+  foo();
+  print("---");
+  var x;
+  x = foo();
+  print("---");
+  print(x); 
+}
+"""
+interpreter = Interpreter()
+interpreter.run(program)

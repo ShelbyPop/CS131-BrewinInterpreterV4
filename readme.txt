@@ -11,3 +11,4 @@ Nov 23 - Added Lazy evaluation - Unsure if actually correct, tried 12-13 testcas
 
 Nov 24 - ..... I'm just... okay
         - the fix was that I needed to make the environment I pass to the Thunk a **DEEPCOPY** and not a shallow copy. I.... ugh. That took me like 5 hours alone to debug.. cool lol
+        - Found a bug with return statements from V2, Fixed it in V3, so I just copy the run_func minus the type checking and it should work.
