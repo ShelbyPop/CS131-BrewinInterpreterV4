@@ -71,14 +71,15 @@ class Interpreter(InterpreterBase):
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
+                
                 self.variable_scope_stack.pop() ## END FUNC SCOPE ##
                 return_value = return_value.get("value")
                 return return_value
             #return return_value
         
         ### END FUNC SCOPE ###
-        # self.variable_scope_stack.pop()
-        # return return_value
+        self.variable_scope_stack.pop()
+        return return_value
     
     def run_statement(self, statement_node, env=None):
         if env is None:
