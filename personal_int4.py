@@ -117,9 +117,17 @@ class Interpreter(InterpreterBase):
         source_node = self.get_expression_node(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
-                # Does not evaluate until after checking if valid variable
-                # Rather than evaluating the expression, store as a Thunk.
-                scope[target_var_name] = Thunk(source_node, self.variable_scope_stack.copy(), self.evaluate_expression)
+                curr_val = scope[target_var_name]
+                # GPT (+6)
+                # Store a thunk that resolves the new value in the current context
+                def evaluate_with_closure(expr=source_node, env=self.variable_scope_stack.copy(), prev_value=curr_val):
+                    # Update the environment with the previous value of the variable
+                    if prev_value is not None:
+                        env[-1][target_var_name] = prev_value
+                    return self.evaluate_expression(expr, env)
+                scope[target_var_name] = Thunk(source_node, self.variable_scope_stack.copy(), evaluate_with_closure)
+                self.output(f"Scope: {scope}")
+                #self.output(scope)
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -158,7 +166,7 @@ class Interpreter(InterpreterBase):
                     else: 
                         output += "false"
                 else:
-                    output += str(self.evaluate_expression(arg, env))
+                    output += str(eval)
             # THIS IS 1/3 OF ONLY REAL SELF.OUTPUT
             self.output(output)
             return nil
@@ -212,6 +220,7 @@ class Interpreter(InterpreterBase):
                 var_name = params[i].dict['name']
                 processed_args[-1][var_name] = Thunk(args[i], env, self.evaluate_expression) # In arg assign to param, use thunks still (just like do_assignment)
             
+            self.output(processed_args)
             # TODO: May need to remove .copy()?
             main_vars = self.variable_scope_stack.copy()
             self.variable_scope_stack = processed_args
@@ -343,7 +352,7 @@ class Interpreter(InterpreterBase):
         elif self.is_binary_boolean_operator(expression_node):
             return self.evaluate_binary_boolean_operator(expression_node, env)
         elif self.is_func_call(expression_node):
-            return self.do_func_call(expression_node, env)
+            return self.do_func_call(expression_node)
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -363,10 +372,13 @@ class Interpreter(InterpreterBase):
                 if val is None:
                     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
                 elif isThunk(val):
+                    #self.output(f"Val is: {val.value()}")
                     return val.value() # So we dont print the thunk object + forces evaluation.
                 else: 
                     return val 
         # if varname not found
+        #self.output(f"Environment: {env}")
+        #self.output(f"Scope stack: {self.variable_scope_stack}")
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
     # + or -
@@ -406,7 +418,7 @@ class Interpreter(InterpreterBase):
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
         # != and == can compare different types.
-        #self.output(f"eval1: {eval1} eval2: {eval2}")
+        self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type int.",)
         match expression_node.elem_type:
@@ -446,18 +458,19 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-func faultyFunction() {
-  print(undefinedVar); /* Name error occurs here when evaluated */
+func foo() {
+    print("hi there!");
+    return 2;
 }
-
 func main() {
   var result;
-  result = faultyFunction();
-  print("Assigned result!");
- 
-  print(result);      /* Error will occur when result is evaluated */
+  result = 5;
+  result = foo() + result;
+  print(result);
+  var equals;
+  equals = result;
+  print(result == equals);
 }
-
 
 
 """
