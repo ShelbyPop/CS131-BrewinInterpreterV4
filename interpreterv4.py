@@ -3,8 +3,8 @@
 
 from brewparse import *
 from intbase import *
-import sys
-sys.tracebacklimit = 0
+# import sys
+# sys.tracebacklimit = 0
 import copy
 nil = Element("nil")
 
@@ -462,22 +462,20 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-program = """
-func foo() {
-    print("hi there!");
-    return 2;
-}
-func main() {
-  var result;
-  result = 5;
-  result = result + 2;
-  print(result);
-  var equals;
-  equals = result;
-  print(result == equals);
-}
-
-
-"""
-interpreter = Interpreter()
-interpreter.run(program)
+# program = """
+# func foo() {
+#     print("hi there!");
+#     return 2;
+# }
+# func main() {
+#   var result;
+#   result = 5;
+#   result = result + 2;
+#   print(result);
+#   var equals;
+#   equals = result;
+#   print(result == equals);
+# }
+# """
+# interpreter = Interpreter()
+# interpreter.run(program)
