@@ -6,12 +6,30 @@ from enum import Enum
 from brewparse import parse_program
 from env_v4 import EnvironmentManager
 from intbase import InterpreterBase, ErrorType
-from type_valuev4 import Type, Value, create_value, get_printable
+from type_valuev4 import Type, Value, create_value, get_printable # type: ignore
 
 
 class ExecStatus(Enum):
     CONTINUE = 1
     RETURN = 2
+
+# Source: https://www.cs.virginia.edu/~evans/cs150/book/ch13-laziness-0402.pdf (Given on campuswire)
+class Thunk:
+    # expr stores the expression_node, env stores the variable scope.
+    def __init__(self, expr, env, eval_expr):
+        self._expr = expr
+        self._env = env
+        self._evaluated = False
+        self._value = None
+        self._eval_expr = eval_expr # Pass in expression eval method from Interpreter class
+
+    def value(self):
+        if not self._evaluated:
+            self._value = self._eval_expr(self._expr, self._env)
+            self._evaluated = True
+        return self._value
+def isThunk(expr):
+    return isinstance(expr, Thunk)
 
 
 # Main interpreter class
@@ -339,13 +357,14 @@ class Interpreter(InterpreterBase):
 #DEBUGGING
 program = """
 func foo() {
-    print("hi there!");
+    print("This should print second");
     return 2;
 }
 func main() {
   var result;
   result = 5;
   result = foo() + result;
+  print("This should print first");
   print(result);
   var equals;
   equals = result;
