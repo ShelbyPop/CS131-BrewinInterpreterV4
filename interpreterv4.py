@@ -3,8 +3,8 @@
 
 from brewparse import *
 from intbase import *
-# import sys
-# sys.tracebacklimit = 0
+import sys
+sys.tracebacklimit = 0
 import copy
 nil = Element("nil")
 
@@ -126,14 +126,10 @@ class Interpreter(InterpreterBase):
         source_node = self.get_expression_node(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
-                
-                #prev_var_stack = self.variable_scope_stack.copy()
                 #self.output(f"Scope before: {scope}")
-                #self.output(prev_var_stack)
+                self.output(f"Source node: {source_node}")
                 scope[target_var_name] = Thunk(source_node, self.variable_scope_stack, self.evaluate_expression) # Thunk deepcopys on init. now 
-                #self.output(prev_var_stack)
                 #self.output(f"Scope after: {scope}")
-                
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -226,18 +222,20 @@ class Interpreter(InterpreterBase):
             params = func_def.dict['args'] # function parameters
             processed_args = [{}]
             # intialize params, and then assign to them each arg in order
+            self.output("Testing!")
             for i in range(0,len(params)):
                 var_name = params[i].dict['name']
-                processed_args[-1][var_name] = Thunk(args[i], env, self.evaluate_expression) # In arg assign to param, use thunks still (just like do_assignment)
+                self.output(f"Argument: {args[i]}")
+                processed_args[-1][var_name] = Thunk(args[i], self.variable_scope_stack, self.evaluate_expression) # In arg assign to param, use thunks still (just like do_assignment)
             
             #self.output(processed_args)
             # TODO: May need to remove .copy()?
-            main_vars = self.variable_scope_stack.copy()
+            main_vars = copy.deepcopy(self.variable_scope_stack)
             self.variable_scope_stack = processed_args
             return_value = self.run_func(func_def)
             
             #### END FUNC SCOPE ####
-            self.variable_scope_stack = main_vars.copy()
+            self.variable_scope_stack = copy.deepcopy(main_vars)
             return return_value          
             ##### End Function Call ######
     
@@ -256,6 +254,8 @@ class Interpreter(InterpreterBase):
             env = self.variable_scope_stack
         condition = statement_node.dict['condition']
         condition = self.evaluate_expression(condition, env)
+        if isThunk(condition):
+            condition = condition.value()
         # error if condition is non-boolean
         if type(condition) is not bool:
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
@@ -298,12 +298,16 @@ class Interpreter(InterpreterBase):
         update = statement_node.dict['update']
         condition = statement_node.dict['condition']
         statements = statement_node.dict['statements']
-        
+        cond = True
         # Run the loop again (exits on condition false)
-        while self.evaluate_expression(condition, env):
-            if type(self.evaluate_expression(condition, env)) is not bool:
+        while cond:
+            cond = self.evaluate_expression(condition, env)
+            if isThunk(cond):
+                cond = cond.value()
+            if type(cond) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
-            
+            if not cond:
+                break
             ### BEGIN VAR SCOPE ###
             self.variable_scope_stack.append({})
 
@@ -479,24 +483,18 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 program = """
-func bar(x) {
- print("bar: ", x);
- return x;
+
+func inc(x) {
+ print("inc:", x);
+ return x + 1;
 }
 
 func main() {
- var x;
- var y;
- x = 0;
- y = 0;
- x = y;
- y = y+5;
- y = y+y;
- print(x);
- print(y);
- print(x==y);
- 
+ var a;
+ a = inc(a);
+ print(a);
 }
+
 """
 interpreter = Interpreter()
 interpreter.run(program)
