@@ -71,7 +71,7 @@ class Interpreter(InterpreterBase):
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 # Return the value, dont need to continue returning.
-                
+
                 self.variable_scope_stack.pop() ## END FUNC SCOPE ##
                 return_value = return_value.get("value")
                 return return_value
@@ -464,20 +464,23 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-program = """
-func foo() {
-  print("foo");
-  return 4;
-}
+# program = """
+# func bar(x) {
+#  print("bar: ", x);
+#  return x;
+# }
 
-func main() {
-  foo();
-  print("---");
-  var x;
-  x = foo();
-  print("---");
-  print(x); 
-}
-"""
-interpreter = Interpreter()
-interpreter.run(program)
+# func main() {
+#  var a;
+#  a = bar(0);
+#  a = a + bar(1);
+#  a = a + bar(2);
+#  a = a + bar(3);
+#  print("---");
+#  print(a);
+#  print("---");
+#  print(a);
+# }
+# """
+# interpreter = Interpreter()
+# interpreter.run(program)
