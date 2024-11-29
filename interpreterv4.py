@@ -22,6 +22,7 @@ class Thunk:
         if not self._evaluated:
             #print(f"Previously: {self._prev_value}")
             #print(f"Thunk variable environment: {self._env}")
+            print(f"Evaluating Thunk: {self._expr}")
             temp_env = self._env
             self._value = self._evaluate_expression(self._expr, temp_env)
             self._prev_value = self._value
@@ -65,27 +66,29 @@ class Interpreter(InterpreterBase):
             env = self.variable_scope_stack
         # statements key for sub-dict.
         ### BEGIN FUNC SCOPE ###
-        self.variable_scope_stack.append({})
+        env.append({})
         return_value = nil
         for statement in func_node.dict['statements']:
+            #self.output(f"Running statement: {statement}")
+            #self.output(f"Env in run_func: {env}")
             return_value = self.run_statement(statement, env)
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
-                # Return the value, dont need to continue returning.
-
-                self.variable_scope_stack.pop() ## END FUNC SCOPE ##
+                env.pop() ## END FUNC SCOPE ##
+                
                 return_value = return_value.get("value")
                 return return_value
             #return return_value
         
         ### END FUNC SCOPE ###
-        self.variable_scope_stack.pop()
+        env.pop()
         return return_value
     
     def run_statement(self, statement_node, env=None):
         if env is None:
             env = self.variable_scope_stack
-        #self.output(f"Running statement: {statement_node}")
+        
+
         if self.is_definition(statement_node):
             self.do_definition(statement_node)
         elif self.is_assignment(statement_node):
@@ -93,7 +96,7 @@ class Interpreter(InterpreterBase):
         elif self.is_func_call(statement_node):
             return self.do_func_call(statement_node, env)
         elif self.is_return_statement(statement_node):
-            return self.do_return_statement(statement_node)
+            return self.do_return_statement(statement_node, env)
         elif self.is_if_statement(statement_node):
             return self.do_if_statement(statement_node, env)
         elif self.is_for_loop(statement_node):
@@ -127,7 +130,7 @@ class Interpreter(InterpreterBase):
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
                 #self.output(f"Scope before: {scope}")
-                self.output(f"Source node: {source_node}")
+                #self.output(f"Source node: {source_node}")
                 scope[target_var_name] = Thunk(source_node, self.variable_scope_stack, self.evaluate_expression) # Thunk deepcopys on init. now 
                 #self.output(f"Scope after: {scope}")
                 return
@@ -208,7 +211,6 @@ class Interpreter(InterpreterBase):
                 return user_in
         else:
             ## USER-DEFINED FUNCTION ##
-            # Check if function is defined
             if not self.check_valid_func(func_call):
                 super().error(ErrorType.NAME_ERROR,
                                 f"Function {func_call} was not found",
@@ -217,34 +219,40 @@ class Interpreter(InterpreterBase):
             ##### Start Function Call ######
 
             #### START FUNC SCOPE ####
-            # Assign parameters to the local variable dict
             args = statement_node.dict['args'] # passed in arguments
             params = func_def.dict['args'] # function parameters
             processed_args = [{}]
-            # intialize params, and then assign to them each arg in order
-            self.output("Testing!")
+
+            #self.output("Testing!")
             for i in range(0,len(params)):
-                var_name = params[i].dict['name']
-                self.output(f"Argument: {args[i]}")
-                processed_args[-1][var_name] = Thunk(args[i], self.variable_scope_stack, self.evaluate_expression) # In arg assign to param, use thunks still (just like do_assignment)
+                param_name = params[i].dict['name']
+                arg_expr = args[i]
+
+                #arg_value = self.evaluate_expression(arg_expr, env)
+                arg_value = self.evaluate_expression(arg_expr, env)
+                self.output(f"Argument: {args[i]} to parameter: {params[i]}")
+                processed_args[-1][param_name] = arg_value
             
             #self.output(processed_args)
             # TODO: May need to remove .copy()?
-            main_vars = copy.deepcopy(self.variable_scope_stack)
-            self.variable_scope_stack = processed_args
-            return_value = self.run_func(func_def)
+            old_env = copy.deepcopy(env)
+            env = processed_args
+            self.output(f"Env before run func: {env}")
+            return_value = self.run_func(func_def, env)
             
             #### END FUNC SCOPE ####
-            self.variable_scope_stack = copy.deepcopy(main_vars)
+            env = copy.deepcopy(old_env)
             return return_value          
             ##### End Function Call ######
     
     def do_return_statement(self, statement_node ,env=None):
+        
         if env is None:
             env = self.variable_scope_stack
         if not statement_node.dict['expression']:
             #return 'nil' Element
             return Element("return", value=nil)
+        
         return self.evaluate_expression(statement_node.dict['expression'], env)
 
     # Scope rules: Can access parent calling vars, but vars they create are deleted after scope.
@@ -263,16 +271,16 @@ class Interpreter(InterpreterBase):
         else_statements = statement_node.dict['else_statements']
 
         ### BEGIN IF SCOPE ###
-        self.variable_scope_stack.append({})
+        env.append({})
         if condition:
             for statement in statements:
                 return_value = self.run_statement(statement, env)     
                 if isinstance(return_value, Element) and return_value.elem_type == "return":
                     #end scope early and return
-                    self.variable_scope_stack.pop()
+                    env.pop()
                     return Element("return", value=return_value.get("value"))
                 elif return_value is not nil:
-                    self.variable_scope_stack.pop()
+                    env.pop()
                     return Element("return", value=return_value)
                     # if return needed, stop running statements, immediately return the value.
         else:
@@ -282,13 +290,13 @@ class Interpreter(InterpreterBase):
                     
                     if isinstance(return_value, Element) and return_value.elem_type == "return":
                         #end scope early and return
-                        self.variable_scope_stack.pop()
+                        env.pop()
                         return Element("return", value=return_value.get("value"))
                     elif return_value is not nil:
-                        self.variable_scope_stack.pop()
+                        env.pop()
                         return Element("return", value=return_value)
         ### END IF SCOPE ###
-        self.variable_scope_stack.pop()
+        env.pop()
         return nil
 
     def do_for_loop(self, statement_node, env):
@@ -309,7 +317,7 @@ class Interpreter(InterpreterBase):
             if not cond:
                 break
             ### BEGIN VAR SCOPE ###
-            self.variable_scope_stack.append({})
+            env.append({})
 
             for statement in statements:
                 return_value = self.run_statement(statement, env)
@@ -317,13 +325,13 @@ class Interpreter(InterpreterBase):
                 if isinstance(return_value, Element) and return_value.elem_type == "return":
 
                     #end scope early and return
-                    self.variable_scope_stack.pop()
+                    env.pop()
                     return Element("return", value=return_value.get("value"))
                 elif return_value is not nil:
                     return Element("return", value=return_value)
 
             ### END VAR SCOPE ###
-            self.variable_scope_stack.pop()
+            env.pop()
 
             self.run_statement(update, env)
         return nil
@@ -351,6 +359,7 @@ class Interpreter(InterpreterBase):
     def evaluate_expression(self, expression_node, env=None): # default for env if none passed in
         if env is None:
             env = self.variable_scope_stack
+        
         if isThunk(expression_node):
             return expression_node.value()
         elif self.is_value_node(expression_node):
@@ -390,10 +399,10 @@ class Interpreter(InterpreterBase):
                     #self.output(f"Val is: {val.value()}")
                     
                     val = val.value() # So we dont print the thunk object + forces evaluation.
-                #     #self.output(f"Environment: {env}")
+                    #self.output(f"Environment: {env}")
                 return val 
         # if varname not found
-        #self.output(f"Environment: {env}")
+        self.output(f"Environment: {env}")
         #self.output(f"Scope stack: {self.variable_scope_stack}")
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -402,12 +411,6 @@ class Interpreter(InterpreterBase):
         # can *only* be +, -, *, / for now.
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
-
-        # if this is being called, that means we're eagerly evaluating, evaluate expression.
-        # if isThunk(eval1):
-        #     eval1 = eval1.value()
-        # if isThunk(eval2):
-        #     eval2 = eval2.value()
         
         #self.output(f"eval1: {eval1} eval2: {eval2}")
 
@@ -485,14 +488,16 @@ class Interpreter(InterpreterBase):
 program = """
 
 func inc(x) {
- print("inc:", x);
+ print(x);
  return x + 1;
 }
 
 func main() {
  var a;
- a = inc(a);
- print(a);
+ a = 0;
+ a = 1;
+ inc(a);
+ print("Hi there!");
 }
 
 """
