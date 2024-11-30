@@ -17,15 +17,31 @@ class Thunk:
         self._expr = expr
         self._env = [copy.deepcopy(env) for env in environment]
         self._evaluated = False
+        #self._evaluating = False
         self._value = None
         self._evaluate_expression = evaluate_expression # Pass in expression eval method from Interpreter class
+        #print(f"Initializing with environment: {self._env}")
+        #print(f"Which was deepcopied from: {environment}")
+        #print(f"{self}")
+    
+    
+
 
     def value(self):
+        #if self._evaluating:
+        #    raise RecursionError("Cyclic dependency detected during Thunk evaluation.")
         if not self._evaluated:
+            #self._evaluating = True
+            #print(f"Evaluating Thunk: {self._expr}")
+            #print(f"Environment on evaluation: {self._env}")
+            #print(f"Self object ref is: {self}")
+
             # Evaluate the thunk
             self._value = self._evaluate_expression(self._expr, self._env)
             self._prev_value = self._value
+            #print(f"Is now: {self._value}")
             self._evaluated = True
+            #self._evaluating = False
         return self._value
 def isThunk(expr):
     return isinstance(expr, Thunk)
@@ -67,6 +83,8 @@ class Interpreter(InterpreterBase):
         env.append({})
         return_value = nil
         for statement in func_node.dict['statements']:
+            #self.output(f"Running statement: {statement}")
+            #self.output(f"Env in run_func: {env}")
             return_value = self.run_statement(statement, env)
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
@@ -74,6 +92,7 @@ class Interpreter(InterpreterBase):
                 
                 return_value = return_value.get("value")
                 return return_value
+            #return return_value
         
         ### END FUNC SCOPE ###
         env.pop()
@@ -226,9 +245,8 @@ class Interpreter(InterpreterBase):
                 param_name = params[i].dict['name']
                 arg_expr = args[i]
                 
-
                 #arg_value = self.evaluate_expression(arg_expr, env)
-                arg_value = self.evaluate_expression(arg_expr, env)
+                arg_value = Thunk(arg_expr, env, self.evaluate_expression)
                 #self.output(f"Argument: {args[i]} to parameter: {params[i]}")
                 processed_args[-1][param_name] = arg_value
             
@@ -486,22 +504,29 @@ class Interpreter(InterpreterBase):
 #DEBUGGING
 program = """
 
-func zero() {
-  print("zero");
-  return 0;
+func op(a, b , c) {
+  if (c) {
+    return a * -b;
+  } else {
+    return a + b;
+  }
 }
 
-func inc(x) {
- print("inc:", x);
- return x + 1;
+func param(a) {
+  print(a);
+  return a;
 }
 
 func main() {
- var a;
- for (a = 0; zero() + a < 3; a = inc(a)) {
-   print("x");
- }
- print("d");
+  print("enter main");
+  var x;
+  var y;
+  print("lazy evals");
+  x = op(param(5), param(7), param(true));
+  y = op(param(5), param(7), param(false));
+  print(x);
+  print(y);
+  print("exit main");
 }
 
 """
