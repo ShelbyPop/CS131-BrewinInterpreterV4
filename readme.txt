@@ -19,3 +19,7 @@ Nov 29 -
                 noticed because I had a default on it. If that doesn't demonstrate how spaghetti code this has become then I'm not sure what will
         - Something is still wrong with autograder saying I failed when it passes on my own, Boyan said I should add debug prints to see, but 
                 I think for now I'm just going to move on. Future me will either hate me or love me for this decision. Time will tell.
+
+Nov 30 - 
+        - Implemented Raise statements, planned ahead for try/catch with error propagation (breaks all run_statements loops, and propogates up to run_func(main_func_node))
+        
