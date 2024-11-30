@@ -3,8 +3,10 @@
 
 from brewparse import *
 from intbase import *
+
 import sys
 sys.tracebacklimit = 0
+
 import copy
 nil = Element("nil")
 
@@ -20,13 +22,9 @@ class Thunk:
 
     def value(self):
         if not self._evaluated:
-            #print(f"Previously: {self._prev_value}")
-            #print(f"Thunk variable environment: {self._env}")
-            print(f"Evaluating Thunk: {self._expr}")
-            temp_env = self._env
-            self._value = self._evaluate_expression(self._expr, temp_env)
+            # Evaluate the thunk
+            self._value = self._evaluate_expression(self._expr, self._env)
             self._prev_value = self._value
-            #print(f"Is now: {self._value}")
             self._evaluated = True
         return self._value
 def isThunk(expr):
@@ -69,8 +67,6 @@ class Interpreter(InterpreterBase):
         env.append({})
         return_value = nil
         for statement in func_node.dict['statements']:
-            #self.output(f"Running statement: {statement}")
-            #self.output(f"Env in run_func: {env}")
             return_value = self.run_statement(statement, env)
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
@@ -78,7 +74,6 @@ class Interpreter(InterpreterBase):
                 
                 return_value = return_value.get("value")
                 return return_value
-            #return return_value
         
         ### END FUNC SCOPE ###
         env.pop()
@@ -87,12 +82,10 @@ class Interpreter(InterpreterBase):
     def run_statement(self, statement_node, env=None):
         if env is None:
             env = self.variable_scope_stack
-        
-
         if self.is_definition(statement_node):
             self.do_definition(statement_node)
         elif self.is_assignment(statement_node):
-            self.do_assignment(statement_node)
+            self.do_assignment(statement_node,env)
         elif self.is_func_call(statement_node):
             return self.do_func_call(statement_node, env)
         elif self.is_return_statement(statement_node):
@@ -124,14 +117,19 @@ class Interpreter(InterpreterBase):
         else:
             self.variable_scope_stack[-1][target_var_name] = None
         
-    def do_assignment(self, statement_node):
+    # env is either an environment or self.variable_scope_stack
+    def do_assignment(self, statement_node, env):
         target_var_name = self.get_target_variable_name(statement_node)
         source_node = self.get_expression_node(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
-                #self.output(f"Scope before: {scope}")
-                #self.output(f"Source node: {source_node}")
-                scope[target_var_name] = Thunk(source_node, self.variable_scope_stack, self.evaluate_expression) # Thunk deepcopys on init. now 
+                #self.output(f"\n\nAssigning {target_var_name}: {source_node}")
+                #self.output(f"Environment before assignment: {env}")
+
+                scope[target_var_name] = Thunk(source_node, env, self.evaluate_expression) # Thunk deepcopys on init. now 
+                
+                #self.output(f"Environment after assignment: {env}")
+                
                 #self.output(f"Scope after: {scope}")
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
@@ -227,17 +225,18 @@ class Interpreter(InterpreterBase):
             for i in range(0,len(params)):
                 param_name = params[i].dict['name']
                 arg_expr = args[i]
+                
 
                 #arg_value = self.evaluate_expression(arg_expr, env)
                 arg_value = self.evaluate_expression(arg_expr, env)
-                self.output(f"Argument: {args[i]} to parameter: {params[i]}")
+                #self.output(f"Argument: {args[i]} to parameter: {params[i]}")
                 processed_args[-1][param_name] = arg_value
             
             #self.output(processed_args)
             # TODO: May need to remove .copy()?
             old_env = copy.deepcopy(env)
             env = processed_args
-            self.output(f"Env before run func: {env}")
+            #self.output(f"Env before run func: {env}")
             return_value = self.run_func(func_def, env)
             
             #### END FUNC SCOPE ####
@@ -309,9 +308,9 @@ class Interpreter(InterpreterBase):
         cond = True
         # Run the loop again (exits on condition false)
         while cond:
-            cond = self.evaluate_expression(condition, env)
+            cond = self.evaluate_expression(condition, env) 
             if isThunk(cond):
-                cond = cond.value()
+                cond = cond.value() # eagerly evaluate!
             if type(cond) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             if not cond:
@@ -375,7 +374,7 @@ class Interpreter(InterpreterBase):
         elif self.is_binary_boolean_operator(expression_node):
             return self.evaluate_binary_boolean_operator(expression_node, env)
         elif self.is_func_call(expression_node):
-            return self.do_func_call(expression_node)
+            return self.do_func_call(expression_node, env)
 
     def get_value(self, expression_node):
         # Returns value assigned to key 'val'
@@ -402,7 +401,7 @@ class Interpreter(InterpreterBase):
                     #self.output(f"Environment: {env}")
                 return val 
         # if varname not found
-        self.output(f"Environment: {env}")
+        #self.output(f"Environment: {env}")
         #self.output(f"Scope stack: {self.variable_scope_stack}")
         super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' used and not declared",)
 
@@ -487,17 +486,22 @@ class Interpreter(InterpreterBase):
 #DEBUGGING
 program = """
 
+func zero() {
+  print("zero");
+  return 0;
+}
+
 func inc(x) {
- print(x);
+ print("inc:", x);
  return x + 1;
 }
 
 func main() {
  var a;
- a = 0;
- a = 1;
- inc(a);
- print("Hi there!");
+ for (a = 0; zero() + a < 3; a = inc(a)) {
+   print("x");
+ }
+ print("d");
 }
 
 """
