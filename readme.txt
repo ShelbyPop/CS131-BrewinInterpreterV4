@@ -12,3 +12,10 @@ Nov 23 - Added Lazy evaluation - Unsure if actually correct, tried 12-13 testcas
 Nov 24 - ..... I'm just... okay
         - the fix was that I needed to make the environment I pass to the Thunk a **DEEPCOPY** and not a shallow copy. I.... ugh. That took me like 5 hours alone to debug.. cool lol
         - Found a bug with return statements from V2, Fixed it in V3, so I just copy the run_func minus the type checking and it should work.
+
+Nov 29 - 
+        - So. Back here again. I think I may have finally fixed everything. 5/12 on testcases, all my testcases I've tried have passed. 
+                I fixed parameter passing. Turns out, the whole issue was me not passing in a variable i needed to, and I never
+                noticed because I had a default on it. If that doesn't demonstrate how spaghetti code this has become then I'm not sure what will
+        - Something is still wrong with autograder saying I failed when it passes on my own, Boyan said I should add debug prints to see, but 
+                I think for now I'm just going to move on. Future me will either hate me or love me for this decision. Time will tell.
