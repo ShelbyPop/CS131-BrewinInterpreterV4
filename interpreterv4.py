@@ -17,31 +17,18 @@ class Thunk:
         self._expr = expr
         self._env = [copy.deepcopy(env) for env in environment]
         self._evaluated = False
-        #self._evaluating = False
         self._value = None
         self._evaluate_expression = evaluate_expression # Pass in expression eval method from Interpreter class
         #print(f"Initializing with environment: {self._env}")
         #print(f"Which was deepcopied from: {environment}")
         #print(f"{self}")
     
-    
-
-
     def value(self):
-        #if self._evaluating:
-        #    raise RecursionError("Cyclic dependency detected during Thunk evaluation.")
         if not self._evaluated:
-            #self._evaluating = True
-            #print(f"Evaluating Thunk: {self._expr}")
-            #print(f"Environment on evaluation: {self._env}")
-            #print(f"Self object ref is: {self}")
-
-            # Evaluate the thunk
             self._value = self._evaluate_expression(self._expr, self._env)
             self._prev_value = self._value
             #print(f"Is now: {self._value}")
             self._evaluated = True
-            #self._evaluating = False
         return self._value
 def isThunk(expr):
     return isinstance(expr, Thunk)
@@ -58,7 +45,12 @@ class Interpreter(InterpreterBase):
         #self.output(ast) # always good for start of assignment
         self.func_defs = self.get_func_defs(ast)
         main_func_node = self.get_main_func_node(ast)
-        self.run_func(main_func_node)
+        result = self.run_func(main_func_node) # change to do_func_call?
+        #self.output(f"Program returned: {result}")
+        # Check output status of program. - Does program result in a raised error?
+        if isinstance(result, tuple) and result[1] == "error":
+            exception, status = result
+            super().error(ErrorType.FAULT_ERROR, f"",)
 
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
@@ -86,17 +78,19 @@ class Interpreter(InterpreterBase):
             #self.output(f"Running statement: {statement}")
             #self.output(f"Env in run_func: {env}")
             return_value = self.run_statement(statement, env)
+            #self.output(f"Statement: {statement}")
             # check if statement results in a return, and return a return statement with 
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 env.pop() ## END FUNC SCOPE ##
                 
                 return_value = return_value.get("value")
                 return return_value
-            #return return_value
+            if isinstance(return_value, tuple) and return_value[1] == "error":
+                break; # Don't run anymore statements, exit the clause immediately.
         
         ### END FUNC SCOPE ###
         env.pop()
-        return return_value
+        return return_value # (may return (exception, status))
     
     def run_statement(self, statement_node, env=None):
         if env is None:
@@ -113,6 +107,8 @@ class Interpreter(InterpreterBase):
             return self.do_if_statement(statement_node, env)
         elif self.is_for_loop(statement_node):
             return self.do_for_loop(statement_node, env)
+        elif self.is_raise_statement(statement_node):
+            return self.do_raise_statement(statement_node, env)
         return nil
     
     def is_definition(self, statement_node):
@@ -127,6 +123,8 @@ class Interpreter(InterpreterBase):
         return (True if statement_node.elem_type == "if" else False)
     def is_for_loop(self, statement_node):
         return (True if statement_node.elem_type == "for" else False)
+    def is_raise_statement(self, statement_node):
+        return (True if statement_node.elem_type == "raise" else False)
 
     def do_definition(self, statement_node):
         # just add to var_name_to_value dict
@@ -142,14 +140,7 @@ class Interpreter(InterpreterBase):
         source_node = self.get_expression_node(statement_node)
         for scope in reversed(self.variable_scope_stack): 
             if target_var_name in scope: 
-                #self.output(f"\n\nAssigning {target_var_name}: {source_node}")
-                #self.output(f"Environment before assignment: {env}")
-
                 scope[target_var_name] = Thunk(source_node, env, self.evaluate_expression) # Thunk deepcopys on init. now 
-                
-                #self.output(f"Environment after assignment: {env}")
-                
-                #self.output(f"Scope after: {scope}")
                 return
         super().error(ErrorType.NAME_ERROR, f"variable used and not declared: {target_var_name}",)
 
@@ -180,12 +171,11 @@ class Interpreter(InterpreterBase):
             output = ""
             # loop through each arg in args list for print, evaluate their expressions, concat, and output.
             for arg in statement_node.dict['args']:
-                
                 eval = self.evaluate_expression(arg, env)
                 if isThunk(eval):
                     eval = eval.value()
-                    #self.output(f"Eval'd : {eval}")
-                # note, cant concat unles its str type
+                if self.check_if_returns_raised_error(eval): # propagate error on eval
+                    return eval
                 if type(eval) is bool:
                     if eval:
                         output += "true"
@@ -203,7 +193,12 @@ class Interpreter(InterpreterBase):
             elif len(statement_node.dict['args']) == 1:
                 arg = statement_node.dict['args'][0]
                 # THIS IS 2/3 OF ONLY REAL SELF.OUTPUT
-                self.output(self.evaluate_expression(arg, env))
+                eval = self.evaluate_expression(arg, env)
+                if isThunk(eval):
+                    eval = eval.value()
+                if self.check_if_returns_raised_error(eval): # propagate error on eval
+                    return eval
+                self.output(eval)
             user_in = super().get_input()
             try:
                 user_in = int(user_in)
@@ -219,10 +214,15 @@ class Interpreter(InterpreterBase):
             elif len(statement_node.dict['args']) == 1:
                 arg = statement_node.dict['args'][0]
                 # THIS IS 3/3 OF ONLY REAL SELF.OUTPUT
-                self.output(self.evaluate_expression(arg, env))
+                eval = self.evaluate_expression(arg, env)
+                if isThunk(eval):
+                    eval = eval.value()
+                if self.check_if_returns_raised_error(eval): # propagate error on eval
+                    return eval
+                self.output(eval)
             user_in = super().get_input()
             try:
-                user_in = int(user_in)
+                user_in = str(user_in)
                 return user_in
             except:
                 return user_in
@@ -244,21 +244,15 @@ class Interpreter(InterpreterBase):
             for i in range(0,len(params)):
                 param_name = params[i].dict['name']
                 arg_expr = args[i]
-                
-                #arg_value = self.evaluate_expression(arg_expr, env)
                 arg_value = Thunk(arg_expr, env, self.evaluate_expression)
-                #self.output(f"Argument: {args[i]} to parameter: {params[i]}")
                 processed_args[-1][param_name] = arg_value
             
-            #self.output(processed_args)
-            # TODO: May need to remove .copy()?
-            old_env = copy.deepcopy(env)
+            old_env = env.copy()
             env = processed_args
-            #self.output(f"Env before run func: {env}")
             return_value = self.run_func(func_def, env)
             
             #### END FUNC SCOPE ####
-            env = copy.deepcopy(old_env)
+            env = old_env.copy()
             return return_value          
             ##### End Function Call ######
     
@@ -281,6 +275,8 @@ class Interpreter(InterpreterBase):
         condition = self.evaluate_expression(condition, env)
         if isThunk(condition):
             condition = condition.value()
+        if self.check_if_returns_raised_error(condition):
+            return condition
         # error if condition is non-boolean
         if type(condition) is not bool:
             super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
@@ -329,6 +325,8 @@ class Interpreter(InterpreterBase):
             cond = self.evaluate_expression(condition, env) 
             if isThunk(cond):
                 cond = cond.value() # eagerly evaluate!
+            if self.check_if_returns_raised_error(cond):
+                return cond
             if type(cond) is not bool:
                 super().error(ErrorType.TYPE_ERROR, "Condition is not of type bool",)
             if not cond:
@@ -338,6 +336,7 @@ class Interpreter(InterpreterBase):
 
             for statement in statements:
                 return_value = self.run_statement(statement, env)
+                #self.output(f"statement in for loop returned {return_value}")
                 # if return keyword
                 if isinstance(return_value, Element) and return_value.elem_type == "return":
 
@@ -353,6 +352,29 @@ class Interpreter(InterpreterBase):
             self.run_statement(update, env)
         return nil
         
+    def do_raise_statement(self, statement_node, env):
+        status = "error"
+        #Eagerly evaluate exception type
+        exception_type = statement_node.dict['exception_type']
+        # Exception_type is a list of args
+        exception = self.evaluate_expression(exception_type, env)
+        if self.check_if_returns_raised_error(exception):
+            return exception
+        if not isinstance(exception, str):
+            super().error(ErrorType.TYPE_ERROR, f"Exception '{exception}' does not evaluate to a string.",)
+
+        #self.output(f"Raised exception: {(exception, status)}")
+        return (exception, status)
+
+    # Checks if eager evaluation returns 
+    def check_if_returns_raised_error(self, eval):
+        if isinstance(eval, tuple):
+            exception, status = eval
+            if status == "error":
+                return True
+
+    ## END OF STATEMENT NODES
+
     def get_target_variable_name(self, statement_node):
         return statement_node.dict['name']
     def get_expression_node(self, statement_node):
@@ -376,9 +398,8 @@ class Interpreter(InterpreterBase):
     def evaluate_expression(self, expression_node, env=None): # default for env if none passed in
         if env is None:
             env = self.variable_scope_stack
-        
-        if isThunk(expression_node):
-            return expression_node.value()
+        #if isThunk(expression_node):
+        #    return expression_node.value()
         elif self.is_value_node(expression_node):
             return self.get_value(expression_node)
         elif self.is_variable_node(expression_node):
@@ -413,8 +434,6 @@ class Interpreter(InterpreterBase):
                 if val is None:
                     super().error(ErrorType.NAME_ERROR, f"variable '{var_name}' declared but not defined",)
                 elif isThunk(val):
-                    #self.output(f"Val is: {val.value()}")
-                    
                     val = val.value() # So we dont print the thunk object + forces evaluation.
                     #self.output(f"Environment: {env}")
                 return val 
@@ -427,8 +446,12 @@ class Interpreter(InterpreterBase):
     def evaluate_binary_operator(self, expression_node, env):
         # can *only* be +, -, *, / for now.
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        if self.check_if_returns_raised_error(eval1):
+            return eval1
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
-        
+        if self.check_if_returns_raised_error(eval2):
+            return eval2
+        #self.output(expression_node)
         #self.output(f"eval1: {eval1} eval2: {eval2}")
 
         # for all operators other than + (for concat), both must be of type 'int'
@@ -443,12 +466,16 @@ class Interpreter(InterpreterBase):
         elif expression_node.elem_type == "*":
             return (eval1 * eval2)
         elif expression_node.elem_type == "/":
+            if eval2 == 0:
+                return("div0", "error") # return divide by 0 error
             # integer division
             return (eval1 // eval2)
 
     def evaluate_unary_operator(self, expression_node, env):
         # can be 'neg' (-b) or  '!' for boolean
         eval = self.evaluate_expression(expression_node.dict['op1'], env)
+        if self.check_if_returns_raised_error(eval):
+            return eval
         if expression_node.elem_type == "neg":
             if not (type(eval) == int):
                 super().error(ErrorType.TYPE_ERROR, "'negation' can only be used on integer values.",)
@@ -461,7 +488,11 @@ class Interpreter(InterpreterBase):
     # there's probably a better way to do this but oh well
     def evaluate_comparison_operator(self, expression_node, env):
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        if self.check_if_returns_raised_error(eval1):
+            return eval1
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+        if self.check_if_returns_raised_error(eval2):
+            return eval2
         # != and == can compare different types.
         #self.output(f"eval1: {eval1} eval2: {eval2}")
         if (expression_node.elem_type not in ["!=", "=="]) and not (type(eval1) == int and type(eval2) == int):
@@ -488,7 +519,11 @@ class Interpreter(InterpreterBase):
     
     def evaluate_binary_boolean_operator(self, expression_node, env):
         eval1 = self.evaluate_expression(expression_node.dict['op1'], env)
+        if self.check_if_returns_raised_error(eval1):
+            return eval1
         eval2 = self.evaluate_expression(expression_node.dict['op2'], env)
+        if self.check_if_returns_raised_error(eval2):
+            return eval2
         if (type(eval1) is not bool) or (type(eval2) is not bool):
             super().error(ErrorType.TYPE_ERROR, f"Comparison args for {expression_node.elem_type} must be of same type bool.",)
         # forces evaluation on both (strict evaluation)
@@ -502,33 +537,28 @@ class Interpreter(InterpreterBase):
     # No more functions remain... for now... :)
 
 #DEBUGGING
-program = """
-
-func op(a, b , c) {
-  if (c) {
-    return a * -b;
-  } else {
-    return a + b;
-  }
-}
-
-func param(a) {
-  print(a);
-  return a;
-}
-
-func main() {
-  print("enter main");
-  var x;
-  var y;
-  print("lazy evals");
-  x = op(param(5), param(7), param(true));
-  y = op(param(5), param(7), param(false));
-  print(x);
-  print(y);
-  print("exit main");
-}
-
-"""
-interpreter = Interpreter()
-interpreter.run(program)
+# program = """
+# func main() {
+#   var vd;
+#   vd = false;
+#   if (inputs() == "I'm in") {
+#     var i;
+#     for (i = 0; i < 10; i = i + 1) {
+#       var x;
+#       x = i * i - 7 * i + 10 > 0;
+#       if (x) {
+#         vd = x;
+#         print("above zero");
+#       } else {
+#         print("below zero");
+#       }
+#       var i;
+#       i = x;
+#     }
+#     print(i);
+#     print(x);
+#   }
+# }
+#  """
+# interpreter = Interpreter()
+# interpreter.run(program)
