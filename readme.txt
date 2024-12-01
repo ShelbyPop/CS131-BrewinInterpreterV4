@@ -22,4 +22,9 @@ Nov 29 -
 
 Nov 30 - 
         - Implemented Raise statements, planned ahead for try/catch with error propagation (breaks all run_statements loops, and propogates up to run_func(main_func_node))
+        - Implemented Try-catch blocks, should have correct scoping? 
+        - Removed unnecessary helper functions that made code more bulky
+        - Added rudementary short circuiting
+Dec 1 - 
+        - Turns out that try clauses should prioritize return statements over catchers, Implemented.
         
