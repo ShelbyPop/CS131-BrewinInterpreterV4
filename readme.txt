@@ -1,4 +1,6 @@
-No known bugs! All good!
+## KNOWN BUGS ##
+- Some sort of environment not propagating fully correctly through autograder, unsure how to fix fully.
+
 
 Nov 23 - Added Lazy evaluation - Unsure if actually correct, tried 12-13 testcases and they were correct
             - Implemented via Thunk class as suggested in https://www.cs.virginia.edu/~evans/cs150/book/ch13-laziness-0402.pdf
@@ -28,3 +30,7 @@ Nov 30 -
 Dec 1 - 
         - Turns out that try clauses should prioritize return statements over catchers, Implemented.
         
+        - There seems to be a missing error where i dont error if try to vardef a var thats been defined as a parameter
+        - I thought in doing all this I would fix how there's random errors with the autograder not grading mine correctly, but it is still happening
+                I'm going to try and fix return, but I don't know if theres anything else I can do.
+        - Fixed return, Can't figure out the autograder situation.

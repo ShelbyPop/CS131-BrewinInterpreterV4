@@ -51,6 +51,9 @@ class Interpreter(InterpreterBase):
         if isinstance(result, tuple) and result[1] == "error":
             exception, status = result
             super().error(ErrorType.FAULT_ERROR, f"Program resulted in raised exception: {exception}",)
+        # After running program, clear env
+        self.variable_scope_stack = [{}]
+
 
     # grabs all globally defined functions to call when needed.
     def get_func_defs(self, ast):
@@ -73,6 +76,7 @@ class Interpreter(InterpreterBase):
         # statements key for sub-dict.
         ### BEGIN FUNC SCOPE ###
         env.append({})
+        #self.output(f"Beginning {func_node} scope {env}")
         return_value = nil
         for statement in func_node.dict['statements']:
             #self.output(f"Env in run_func: {env}")
@@ -96,7 +100,6 @@ class Interpreter(InterpreterBase):
         if elem == "vardef":
             self.do_definition(statement_node, env)
         elif elem == "=":
-            
             self.do_assignment(statement_node,env)
         elif elem == "fcall":
             return self.do_func_call(statement_node, env)
@@ -117,6 +120,7 @@ class Interpreter(InterpreterBase):
             env = self.variable_scope_stack
         # just add to var_name_to_value dict
         target_var_name = self.get_target_variable_name(statement_node)
+        #self.output(f"Attemping to define {target_var_name} in env: {env}")
         if target_var_name in env[-1]:
             super().error(ErrorType.NAME_ERROR, f"Variable {target_var_name} defined more than once",)
         else:
@@ -282,6 +286,9 @@ class Interpreter(InterpreterBase):
                     return Element("return", value=return_value.get("value"))
                 elif return_value is not nil:
                     env.pop()
+                    if isinstance(return_value, tuple) and return_value[1] == "error":
+                        return return_value # Prevents incorrect propagation of error through try block
+                    #return return_value
                     return Element("return", value=return_value)
                     # if return needed, stop running statements, immediately return the value.
         else:
@@ -295,6 +302,9 @@ class Interpreter(InterpreterBase):
                         return Element("return", value=return_value.get("value"))
                     elif return_value is not nil:
                         env.pop()
+                        if isinstance(return_value, tuple) and return_value[1] == "error":
+                            return return_value # Prevents incorrect propagation of error through try block
+                        #return return_value
                         return Element("return", value=return_value)
         ### END IF SCOPE ###
         env.pop()
@@ -332,6 +342,9 @@ class Interpreter(InterpreterBase):
                     env.pop()
                     return Element("return", value=return_value.get("value"))
                 elif return_value is not nil:
+                    if isinstance(return_value, tuple) and return_value[1] == "error":
+                        return return_value # Prevents incorrect propagation of error through try block
+                    #return return_value
                     return Element("return", value=return_value)
 
             ### END VAR SCOPE ###
@@ -370,6 +383,7 @@ class Interpreter(InterpreterBase):
             if isinstance(return_value, Element) and return_value.elem_type == "return":
                 #end scope early and return
                 env.pop()
+                #self.output(f"Return val is somehow an element: {return_value}")
                 return Element("return", value=return_value.get("value"))
             if isinstance(return_value, tuple) and return_value[1] == "error":
                 exception, status = return_value # Catch the error!
@@ -378,14 +392,15 @@ class Interpreter(InterpreterBase):
                     break
             elif return_value is not nil:
                 env.pop()
+                
                 return Element("return", value=return_value)
                 # if return needed, stop running statements, immediately return the value.
-
+        
         # If final statement just returned nil, then just end the scope and return, no catch needed.
         if status != "error":
             env.pop()
             return nil
-        #self.output(f"Return val is: {return_value}")
+        
         ### ONLY REACH HERE IF TRY CAUSED AN ERROR ###
 
         catch_exception_dict = {} # Keys - exceptions ; Values - catch clause statements.
@@ -577,26 +592,17 @@ class Interpreter(InterpreterBase):
 
 #DEBUGGING
 # program = """
-# func main() {
-#   var x;
-#   x = foo();
-#   print(x);
-# }
-# func foo() {
-#   var r4;
-#   r4 = "ABCD";
-#   try {
-#     return print(bar(r4));
-#   }
-#   catch "ABCD" {
-#     print("is this unreachable?");
-#   }
+# func foo(a) {
+#   print("in foo");
+#   print(a);
 # }
 
-# func bar(n) {
-#   if (n == "ABCD") {
-#     raise n;
-#   }
+# func main() {
+#   var x;
+#   x = "prompt";
+#   x = inputi(x);
+#   print("mark");
+#   foo(x);
 # }
 #  """
 # interpreter = Interpreter()
